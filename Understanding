@@ -1,0 +1,393 @@
+# Prometheus Monitoring Workflow
+
+## Overview
+
+In our monitoring setup, we have:
+
+```text
+Node Exporter --> Prometheus --> Alertmanager --> PagerDuty
+
+                     |
+                     |
+                     v
+
+                  Grafana
+```
+
+Each component has a specific responsibility.
+
+---
+
+# Component Responsibilities
+
+## Node Exporter
+
+Node Exporter runs on the monitored server.
+
+Its job is to collect system metrics such as:
+
+* CPU Usage
+* Memory Usage
+* Disk Usage
+* Network Statistics
+
+Example:
+
+```text
+CPU Usage = 25%
+Memory Usage = 60%
+Disk Usage = 70%
+```
+
+Node Exporter exposes these metrics through:
+
+```text
+http://<server-ip>:9100/metrics
+```
+
+Think of Node Exporter as a sensor that measures the health of the server.
+
+---
+
+## Prometheus
+
+Prometheus is the central monitoring system.
+
+Its responsibilities are:
+
+1. Collect metrics from Node Exporter
+2. Store metrics
+3. Evaluate alert rules
+4. Send alerts to Alertmanager
+5. Serve data to Grafana
+
+---
+
+# Step 1: Scraping Metrics
+
+Every 15 seconds (or configured interval), Prometheus sends a request:
+
+```text
+Prometheus --> Node Exporter
+```
+
+Example:
+
+```text
+GET http://172.31.37.196:9100/metrics
+```
+
+Node Exporter responds:
+
+```text
+node_cpu_seconds_total 12345
+node_memory_available_bytes 500000000
+node_filesystem_size_bytes 1000000000
+```
+
+Prometheus receives these values and processes them.
+
+---
+
+# Step 2: Storing Metrics in TSDB
+
+Prometheus stores all collected metrics in its internal database called:
+
+```text
+TSDB
+(Time Series Database)
+```
+
+A Time Series is simply:
+
+```text
+Timestamp + Metric Value
+```
+
+Example:
+
+| Time     | CPU Usage |
+| -------- | --------- |
+| 10:00    | 20%       |
+| 10:00:15 | 25%       |
+| 10:00:30 | 40%       |
+| 10:00:45 | 35%       |
+
+Prometheus continuously appends new metric samples to the database.
+
+---
+
+# Step 3: Evaluating Alert Rules
+
+Prometheus continuously evaluates alert rules.
+
+Example:
+
+```yaml
+alert: InstanceDown
+expr: up == 0
+for: 1m
+```
+
+Meaning:
+
+* Check if server is reachable
+* If unreachable for 1 minute
+* Trigger an alert
+
+Another example:
+
+```yaml
+alert: HighCPUUsage
+expr: CPU > 80%
+for: 2m
+```
+
+Meaning:
+
+* CPU remains above 80%
+* For more than 2 minutes
+* Fire an alert
+
+---
+
+# Step 4: Sending Alerts
+
+When an alert condition becomes true:
+
+```text
+Prometheus
+      |
+      v
+Alertmanager
+```
+
+Example:
+
+```text
+Server node_server is DOWN
+```
+
+Prometheus sends this alert to Alertmanager.
+
+---
+
+## Alertmanager Responsibilities
+
+Alertmanager handles:
+
+* Grouping alerts
+* Deduplication
+* Silencing
+* Routing notifications
+
+Alertmanager then sends notifications to:
+
+* PagerDuty
+* Slack
+* Email
+* Microsoft Teams
+
+Example:
+
+```text
+Alertmanager --> PagerDuty
+```
+
+PagerDuty creates an incident and notifies the on-call engineer.
+
+---
+
+# Step 5: Grafana Visualization
+
+Grafana does NOT collect metrics.
+
+This is a common misconception.
+
+Instead:
+
+```text
+Grafana --> Prometheus
+```
+
+Grafana asks Prometheus:
+
+```text
+Show CPU usage for node_server
+```
+
+Prometheus returns stored metric data.
+
+Example:
+
+| Time  | CPU |
+| ----- | --- |
+| 10:00 | 20% |
+| 10:01 | 25% |
+| 10:02 | 40% |
+
+Grafana converts this data into visual dashboards and graphs.
+
+Think of Grafana as a visualization layer on top of Prometheus.
+
+---
+
+# What Happens When a Server Goes Down?
+
+Suppose the EC2 instance is stopped.
+
+### Before Stop
+
+```text
+up = 1
+```
+
+Meaning:
+
+```text
+Server is reachable
+```
+
+### After Stop
+
+```text
+up = 0
+```
+
+Meaning:
+
+```text
+Server is unreachable
+```
+
+Prometheus detects this condition.
+
+After 1 minute:
+
+```text
+InstanceDown
+```
+
+changes to:
+
+```text
+FIRING
+```
+
+Prometheus sends the alert to Alertmanager.
+
+Alertmanager sends the notification to PagerDuty.
+
+PagerDuty notifies the responsible engineer.
+
+---
+
+# Understanding Chunks
+
+Prometheus does not store every metric separately.
+
+Instead, it groups consecutive samples together.
+
+Example:
+
+| Time  | CPU |
+| ----- | --- |
+| 10:00 | 20  |
+| 10:15 | 25  |
+| 10:30 | 30  |
+| 10:45 | 40  |
+
+Stored internally as:
+
+```text
+Chunk #1
+
+20
+25
+30
+40
+```
+
+A Chunk is simply:
+
+```text
+A small block containing consecutive metric samples.
+```
+
+Benefits:
+
+* Faster writes
+* Better compression
+* Efficient storage
+
+---
+
+# Understanding Index
+
+Prometheus may contain millions of metrics.
+
+Without an index, searching would be slow.
+
+Example:
+
+```text
+CPU Metrics
+Memory Metrics
+Disk Metrics
+Network Metrics
+```
+
+Prometheus maintains an index:
+
+```text
+CPU --> Location A
+Memory --> Location B
+Disk --> Location C
+```
+
+When Grafana requests CPU data:
+
+```text
+Grafana --> Prometheus
+```
+
+Prometheus checks the index and immediately finds the correct data.
+
+Think of the index as:
+
+```text
+Table of Contents in a book
+```
+
+---
+
+# Complete Monitoring Flow
+
+```text
+Node Exporter
+      |
+      | Metrics
+      v
+Prometheus
+      |
+      | Stores Metrics in TSDB
+      |
+      | Evaluates Alert Rules
+      |
+      +-------------> Grafana
+      |                 |
+      |                 | Dashboards
+      |                 |
+      v
+Alertmanager
+      |
+      | Notifications
+      v
+PagerDuty / Slack / Email
+```
+
+---
+
+# Interview Summary
+
+Prometheus periodically scrapes metrics from exporters, stores them in its Time Series Database (TSDB), evaluates alerting rules, sends alerts to Alertmanager, and serves metric data to Grafana through PromQL queries.
