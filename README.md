@@ -1,6 +1,6 @@
 # Monitoring Stack Setup using Prometheus, Grafana, Node Exporter, Alertmanager, and PagerDuty
 
-https://github.com/user-attachments/assets/65938448-2920-4cad-a36d-8c6d3c3997ff
+https://github.com/user-attachments/assets/e04d14a3-6edb-4565-96b7-344f4c5b7a60
 
 ## Overview
 
